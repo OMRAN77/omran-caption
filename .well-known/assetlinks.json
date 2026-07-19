@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.omran.caption",
+      "sha256_cert_fingerprints": [
+        "4D:BB:99:E1:1E:1B:51:48:C6:3D:00:B2:AD:94:58:80:F5:19:10:61:49:85:99:80:E9:BE:62:EF:EA:DD:93:FE"
+      ]
+    }
+  }
+]
