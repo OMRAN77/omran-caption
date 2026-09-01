@@ -114,23 +114,29 @@ module.exports = async (req, res) => {
       : (mimeType && mimeType.includes('wav')) ? 'wav'
       : 'webm';
 
-    const form = new FormData();
-    form.append('file', new Blob([buf], { type: mimeType || 'audio/webm' }), 'audio.' + ext);
-    form.append('model', 'whisper-large-v3-turbo');
-    form.append('response_format', 'verbose_json');
-    // Encourage the model to only transcribe real speech, not hallucinate on silence/noise.
-    form.append('temperature', '0');
-    // If the user told us what language they're speaking, force Whisper to
-    // transcribe in that language instead of guessing (auto-detect can
-    // mishear fast/accented speech as the wrong language entirely).
-    if (sourceLang && sourceLang !== 'auto') form.append('language', sourceLang);
+    // v-form-fresh: FormData ذات جسم Blob تُستهلك مرة واحدة — إعادة استخدام
+    // نفس الكائن عبر مفاتيح Groq (بعد 429) تُرسل جسمًا فارغًا للمفتاح التالي
+    // فيتعطّل تدوير المفاتيح كليًا. نبني نموذجًا جديدًا لكل محاولة.
+    const buildSttForm = () => {
+      const f = new FormData();
+      f.append('file', new Blob([buf], { type: mimeType || 'audio/webm' }), 'audio.' + ext);
+      f.append('model', 'whisper-large-v3-turbo');
+      f.append('response_format', 'verbose_json');
+      // Encourage the model to only transcribe real speech, not hallucinate on silence/noise.
+      f.append('temperature', '0');
+      // If the user told us what language they're speaking, force Whisper to
+      // transcribe in that language instead of guessing (auto-detect can
+      // mishear fast/accented speech as the wrong language entirely).
+      if (sourceLang && sourceLang !== 'auto') f.append('language', sourceLang);
+      return f;
+    };
 
     let { res: upstream } = await fetchWithGroqFallback(groqKeys, (key) => ({
       url: 'https://api.groq.com/openai/v1/audio/transcriptions',
       options: {
         method: 'POST',
         headers: { 'Authorization': 'Bearer ' + key },
-        body: form,
+        body: buildSttForm(),
       },
     }));
 
@@ -250,8 +256,9 @@ module.exports = async (req, res) => {
       translated = looksLikeRefusal ? original : raw;
       if (looksLikeRefusal) translationError = 'رفض النموذج الترجمة، تم عرض النص الأصلي';
     } else {
-      // Do NOT silently show the original text as if it were translated.
-      // Surface the real reason so the debug panel (and future UI) can show it.
+      // v-no-fake-translate: لا نعرض النص الأصلي كأنه ترجمة — نُفرغ الترجمة
+      // ونُبلغ السبب صراحةً ليعرضه العميل (كان يعرض الأصل صامتًا رغم التعليق).
+      translated = '';
       const errText = await chatRes.text().catch(() => '');
       translationError = chatRes.status === 429
         ? 'كل حسابات Groq المجانية وصلت حدها اليومي، حاول لاحقًا أو غدًا. / All free Groq accounts hit their daily limit, try again later or tomorrow.'

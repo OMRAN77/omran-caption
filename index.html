@@ -438,7 +438,11 @@
         return;
       }
       const data = await resp.json();
-      if (data.original || data.translated) {
+      // v-show-err: نعرض سبب فشل الترجمة إن وُجد بدل تجاهله (كان السيرفر
+      // يرسله والعميل يهمله فيبدو النص عالقًا بلا تفسير).
+      if (data.translationError) {
+        setStageLines(data.original, '⚠️ ' + data.translationError);
+      } else if (data.original || data.translated) {
         setStageLines(data.original, data.translated);
       }
     } catch (e) {
