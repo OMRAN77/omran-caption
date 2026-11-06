@@ -130,7 +130,7 @@ async function groqWithModels(keys, models, build) {
   let res = null;
   for (let i = 0; i < list.length; i++) {
     const model = list[i];
-    ({ res } = await fetchWithGroqFallback(keys, (key) => build(key, model)));
+    ({ res } = await fetchWithGroqFallback(keys, (key) => build(key, model), model));
     if (res.ok) return res;
     const last = i === list.length - 1;
     if (res.status === 429) {
