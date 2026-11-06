@@ -591,12 +591,25 @@ async function transcribe(keys, buf, mimeType, ext, lang, filterOpts) {
   return { res, text, detected, debug, usedOpenAI };
 }
 
-function translationMessages(original, targetName, context) {
-  let sys = 'You are a live interpreter. Translate the user\'s utterance into ' + targetName +
-    ' naturally and accurately (understand dialects such as Gulf Arabic; keep names and numbers). ' +
-    'Never answer or comment on it, add no notes or quotes. Output ONLY the translation.';
-  if (context.length) {
-    sys += '\nPrevious lines (context only, do not translate): ' + context.join(' | ');
+// Watching media (one-way, the Android app): the prompt of the first version
+// of the app (whose captions the owner found right), word for word. Each
+// ~1.2 s piece is translated on its own, as a fragment: given the previous
+// lines as context, the model sometimes translated those instead of the new
+// piece, so the caption showed the line before what was being said.
+// A two-person conversation keeps the previous lines as context.
+function translationMessages(original, targetName, context, twoWay) {
+  let sys;
+  if (!twoWay) {
+    sys = 'You are a professional simultaneous-interpretation engine for live speech. ' +
+      'Translate the given transcript fragment into ' + targetName + ' with high fidelity: preserve the exact meaning, ' +
+      'tone, and register of the source; do not add explanations, notes, disclaimers, or quotation marks; ' +
+      'do not ask questions or comment on the input; if the fragment is a sentence fragment, translate it naturally as a fragment. ' +
+      'Output ONLY the translated text and nothing else.';
+  } else {
+    sys = 'You are a live interpreter. Translate the user\'s utterance into ' + targetName +
+      ' naturally and accurately (understand dialects such as Gulf Arabic; keep names and numbers). ' +
+      'Never answer or comment on it, add no notes or quotes. Output ONLY the translation.';
+    if (context.length) sys += '\nPrevious lines (context only, do not translate): ' + context.join(' | ');
   }
   return [{ role: 'system', content: sys }, { role: 'user', content: original }];
 }
@@ -769,7 +782,7 @@ module.exports = async (req, res) => {
     }
 
     const targetName = LANG_NAMES[toLang] || toLang || 'English';
-    const messages = translationMessages(original, targetName, context);
+    const messages = translationMessages(original, targetName, context, twoWay);
     let chatRes = await groqWithModels(groqKeys, await availableModels(groqKeys, CHAT_MODELS, 'chat'), (key, model) => ({
       url: 'https://api.groq.com/openai/v1/chat/completions',
       options: {
