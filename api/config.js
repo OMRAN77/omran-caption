@@ -11,17 +11,22 @@ const SETTINGS = {
   silenceRms: 0.002,
   // A 50 ms frame this many times quieter than the slice's median is a gap.
   quietRatio: 0.5,
-  // Slices in a row with no words before the caption is cleared.
-  emptyBeforeClear: 3,
+  // Slices in a row with no words before the caption is cleared (6 = about
+  // 7 s: a line stays up through the music between lines).
+  emptyBeforeClear: 6,
   // Previous lines sent with each slice as translation context.
   contextLines: 2,
   // Speech detector on the phone (Silero VAD, app 1.5.0+): a slice is sent
   // only with at least minSpeechMs of speech (probability >= vadThreshold),
   // so silence, room noise and music alone are not sent. vadEnabled: false
   // sends every audible slice, as before.
+  // Loose on purpose: with TikTok music as loud as the voice, 0.35/128 dropped
+  // 15-30% of the speech slices; 0.1/64 keeps 100% at equal loudness (84%
+  // with music 3 dB louder) and still blocks ~95% of music-only slices and
+  // all silence/noise.
   vadEnabled: true,
-  vadThreshold: 0.35,
-  minSpeechMs: 128,
+  vadThreshold: 0.1,
+  minSpeechMs: 64,
 };
 
 module.exports = (req, res) => {
