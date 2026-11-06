@@ -13,12 +13,17 @@ function getGroqKeys() {
 
 // Remembered between requests (same warm serverless instance), so a caption
 // does not pay extra round trips to keys that just failed:
-//  - a key Groq rejected (401/403: wrong or revoked) is skipped for 30 min;
+//  - a key Groq rejects (401) is skipped for 1 min; rejected twice in a row
+//    without ever working here, for 30 min (a wrong or revoked key). So a
+//    passing hiccup cannot lock out a good key for long;
 //  - a key that hit its limit (429) for a model is skipped for that model
-//    until Groq's retry-after.
+//    until Groq's retry-after; a 403 skips that key for that model for 1 min.
 const BAD_KEY_MS = 30 * 60 * 1000;
+const HICCUP_MS = 60 * 1000;
 const badKeyUntil = new Map();
 const busyUntil = new Map(); // `${key}|${tag}` -> time
+const worked = new Set();
+const rejects = new Map(); // key -> 401s in a row
 const retryAfterMs = (res) => {
   const s = Number(res.headers && res.headers.get && res.headers.get('retry-after'));
   return (Number.isFinite(s) && s > 0 ? Math.min(s, 3600) : 10) * 1000;
@@ -33,11 +38,17 @@ async function fetchWithGroqFallback(keys, buildRequest, tag = '') {
   const all = keys.map((_, i) => i);
   const good = all.filter((i) => !(badKeyUntil.get(keys[i]) > now));
   const pool = good.length ? good : all; // every key rejected: config may have changed, try them
-  const ready = pool.filter((i) => !(busyUntil.get(keys[i] + '|' + tag) > now));
+  const free = (i) => !(busyUntil.get(keys[i] + '|' + tag) > now);
+  const ready = pool.filter(free);
   // All keys still rate-limited for this model: one try on the key that frees
   // up first (the caller then moves on to the next model), not a round trip each.
   const order = ready.length ? ready
     : [pool.reduce((a, b) => ((busyUntil.get(keys[a] + '|' + tag) || 0) <= (busyUntil.get(keys[b] + '|' + tag) || 0) ? a : b))];
+  // A key that worked before and was just rejected once goes last, as a
+  // fallback, instead of sending the caption to the next model or to OpenAI.
+  for (const i of all) {
+    if (!order.includes(i) && worked.has(keys[i]) && badKeyUntil.get(keys[i]) > now && free(i)) order.push(i);
+  }
   let lastRes = null;
   let lastErr = null;
   for (let j = 0; j < order.length; j++) {
@@ -48,9 +59,16 @@ async function fetchWithGroqFallback(keys, buildRequest, tag = '') {
       const res = await fetch(url, options);
       if (res.ok) {
         badKeyUntil.delete(keys[i]);
+        rejects.delete(keys[i]);
+        worked.add(keys[i]);
         return { res, keyIndex: i };
       }
-      if (res.status === 401 || res.status === 403) badKeyUntil.set(keys[i], Date.now() + BAD_KEY_MS);
+      if (res.status === 401) {
+        const n = (rejects.get(keys[i]) || 0) + 1;
+        rejects.set(keys[i], n);
+        badKeyUntil.set(keys[i], Date.now() + (n >= 2 && !worked.has(keys[i]) ? BAD_KEY_MS : HICCUP_MS));
+      }
+      if (res.status === 403) busyUntil.set(keys[i] + '|' + tag, Date.now() + HICCUP_MS);
       if (res.status === 429) busyUntil.set(keys[i] + '|' + tag, Date.now() + retryAfterMs(res));
       if ((res.status === 429 || res.status === 401 || res.status === 403) && !last) {
         lastRes = res;
