@@ -324,8 +324,14 @@ module.exports = async (req, res) => {
       res.status(400).json({ error: 'Missing audioBase64' });
       return;
     }
-    const sourceLang = String(body.sourceLang || 'auto').toLowerCase();
     const targetLang = String(body.targetLang || 'en').toLowerCase();
+    let sourceLang = String(body.sourceLang || 'auto').toLowerCase();
+    // Speaking and translation set to the same language almost always means
+    // foreign-language media watched with captions in the user's language
+    // (e.g. a Chinese video with Arabic chosen in both boxes). Forcing Whisper
+    // to that language makes it guess garbled text from the foreign speech, so
+    // detect the spoken language instead.
+    if (sourceLang === targetLang) sourceLang = 'auto';
     const context = Array.isArray(body.context)
       ? body.context.filter((s) => typeof s === 'string' && s.trim()).map((s) => s.slice(0, 150)).slice(-2)
       : [];
