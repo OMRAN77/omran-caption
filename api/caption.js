@@ -213,6 +213,12 @@ const FILTER = {
   // A code-switched "Sorry" / "Bye bye" in another script than the dialogue
   // is dropped only when Whisper is not sure of it.
   OTHER_NO_SPEECH: 0.1, OTHER_MIN_LOGPROB: -0.4,
+  // Watching media (one-way): a clip whose ONLY words are a courtesy phrase
+  // ("谢谢", "Thank you.", "شكراً لك", "Sorry") is dropped whatever Whisper's
+  // numbers. With ~1.2 s clips that is almost always Whisper inventing it
+  // over music or room noise, and the owner would rather miss a real
+  // one-word "thanks" than keep seeing fake ones.
+  DROP_LONE_COURTESY: true,
 };
 
 // Compare text ignoring case, punctuation, spacing, Arabic diacritics and
@@ -340,6 +346,10 @@ const phraseAlt = (list) => uniq(list.map(compactText)).sort((a, b) => b.length 
 // with fillers around it. Two different words ("哦，好的，谢谢") are dialogue.
 const onePhraseRe = (list) => new RegExp('^(?:(?:' + FILLERS + ')+|(?:' + FILLERS + ')*(' + phraseAlt(list) + ')(?:\\1)*(?:' + FILLERS + ')*)$', 'u');
 const WEAK_RE = onePhraseRe(WEAK_PHRASES);
+// Just a courtesy phrase (maybe repeated), or just fillers ("嗯", "啊啊"):
+// not a phrase WITH fillers, which also matches real words ("Bye, Mum." =
+// bye + "m" + "um").
+const LONE_COURTESY_RE = new RegExp('^(?:(?:' + FILLERS + ')+|(' + phraseAlt(WEAK_PHRASES) + ')(?:\\1)*)$', 'u');
 const THANKS_RE = onePhraseRe(THANKS_PHRASES);
 const OUTRO_REST_RE = new RegExp('^(?:' + phraseAlt(OUTRO_REST_PHRASES) + '|' + FILLERS + ')+$', 'u');
 
@@ -518,6 +528,10 @@ function filterTranscript(data, opts = {}) {
       if (THANKS_RE.test(compactText(s.text)) || (s.nsp !== undefined && s.nsp > FILTER.OTHER_NO_SPEECH) ||
           (s.lp !== undefined && s.lp < FILTER.OTHER_MIN_LOGPROB)) s.drop = 'weak_phrase_other_language';
     }
+  }
+
+  if (opts.oneWay && FILTER.DROP_LONE_COURTESY && kept().length && kept().every((s) => LONE_COURTESY_RE.test(compactText(s.text)))) {
+    for (const s of kept()) s.drop = 'weak_phrase_alone';
   }
 
   const keptSegs = kept();
